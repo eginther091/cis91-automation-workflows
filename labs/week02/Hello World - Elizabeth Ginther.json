@@ -1,0 +1,137 @@
+{
+  "name": "Hello World - Elizabeth Ginther",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -48
+      ],
+      "id": "c2d12271-231a-4e67-9fa8-b96c5556dbc5",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e96f30e4-bf33-4c4c-8e0b-477e3833cfe9",
+              "name": "student_name",
+              "value": "Elizabeth Ginther",
+              "type": "string"
+            },
+            {
+              "id": "ee118ee4-be21-4935-b9b3-da5bd50a65b0",
+              "name": "course",
+              "value": "CIS 91 - Agentic Automation",
+              "type": "string"
+            },
+            {
+              "id": "08b87897-515e-408e-8ed6-00149a671690",
+              "name": "message",
+              "value": "Hello from n8n!",
+              "type": "string"
+            },
+            {
+              "id": "30157120-b2a0-4605-a3b0-4d29049b6eac",
+              "name": "timestamp",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -176,
+        -48
+      ],
+      "id": "bed524b6-06c6-4f96-b72f-d2bdd48755b7",
+      "name": "Student Info"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "409f8b2a-ea3e-4c96-93fd-9762f0b574be",
+              "name": "greeting",
+              "value": "={{ \"Welcome, \" + $json.student_name + \"! You are enrolled in \" + $json.course + \". Today is \" + $json.timestamp.substring(0, 10) + \".\" }}",
+              "type": "string"
+            },
+            {
+              "id": "af22e666-8f88-4538-b66a-0faabed91ea9",
+              "name": "word_count",
+              "value": "={{ $json.message.split(' ').length }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        48,
+        -48
+      ],
+      "id": "f534de6b-4d05-46ad-93ef-379907715d2c",
+      "name": "Format Greeting"
+    }
+  ],
+  "pinData": {
+    "Student Info": [
+      {
+        "json": {
+          "student_name": "Elizabeth Ginther",
+          "course": "CIS 91 - Agentic Automation",
+          "message": "Hello from n8n!",
+          "timestamp": "2026-10-07T11:04:25.915-07:00"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Student Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Student Info": {
+      "main": [
+        [
+          {
+            "node": "Format Greeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f46f339f-2480-4cee-a759-3ebaad387661",
+  "meta": {
+    "instanceId": "74ee99bc740c6dac711ced63f616b978808d56ad1bdf9d964ab20472df081c38"
+  },
+  "nodeGroups": [],
+  "id": "zWP4iQprubxxRTEi",
+  "tags": []
+}
