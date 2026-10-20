@@ -1,0 +1,336 @@
+{
+  "name": "Lead Research Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -384,
+        -64
+      ],
+      "id": "f65e4c99-b5a0-403e-91b6-1c39e66ca475",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "=https://en.wikipedia.org/api/rest_v1/page/summary/{{ encodeURIComponent($json.company_name) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        64,
+        -64
+      ],
+      "id": "bddaea6d-1f16-4a32-8d5a-a8e918dd0b52",
+      "name": "Wikipedia Search"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3927c06b-eb09-4d5f-8eea-52238ecce4d2",
+              "name": "company_name",
+              "value": "={{ $('Company List').item.json.company_name }}",
+              "type": "string"
+            },
+            {
+              "id": "6d3467f7-8e2a-4bcb-b380-fd7314b680f0",
+              "name": "wiki_summary",
+              "value": "={{ $json.extract ?? 'No Wikipedia page found' }}",
+              "type": "string"
+            },
+            {
+              "id": "b34e1d75-b29f-4d7b-89aa-5afb4f1d1448",
+              "name": "wiki_url",
+              "value": "={{ $json.content_urls?.desktop?.page ?? 'N/A' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        288,
+        -64
+      ],
+      "id": "fc52a34f-c948-4394-b8ac-266598e69294",
+      "name": "Extract Wiki Data"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.duckduckgo.com/?q={{ encodeURIComponent($('Company List').item.json.company_name) }}&format=json&no_html=1",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        512,
+        -64
+      ],
+      "id": "75a10f45-a1c2-4567-85fc-9909ca0daa40",
+      "name": "DuckDuckGo Search"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "64cd0ffe-4666-4d97-99ef-e06ff76b5acb",
+              "name": "search_abstract",
+              "value": "={{ $json.Abstract || 'No abstract available' }}",
+              "type": "string"
+            },
+            {
+              "id": "f4b5d71f-caba-4973-9b89-179b477e2e39",
+              "name": "official_url",
+              "value": "={{ $json.AbstractURL || 'Not found' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        736,
+        -64
+      ],
+      "id": "37cf95b8-7eb4-46d4-9862-d0a4197fcbb4",
+      "name": "Extract Search Data"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e2ce20de-4357-4b29-8966-d26eb9ab4ef4",
+              "name": "company_name",
+              "value": "={{ $('Extract Wiki Data').item.json.company_name }}",
+              "type": "string"
+            },
+            {
+              "id": "c4876cd1-5ec2-42c8-b5e1-82f7ccab6e95",
+              "name": "wiki_summary",
+              "value": "={{ $('Extract Wiki Data').item.json.wiki_summary }}",
+              "type": "string"
+            },
+            {
+              "id": "8540cb67-b6bd-4285-a1c5-4b5b7728c4d3",
+              "name": "wiki_url",
+              "value": "={{ $('Extract Wiki Data').item.json.wiki_url }}",
+              "type": "string"
+            },
+            {
+              "id": "e989d0e3-532e-4f52-8624-beac1686ae7d",
+              "name": "search_abstract",
+              "value": "={{ $('Extract Search Data').item.json.search_abstract }}",
+              "type": "string"
+            },
+            {
+              "id": "ac086f63-db0e-4629-84a2-af7bb5ab18cc",
+              "name": "official_url",
+              "value": "={{ $('Extract Search Data').item.json.official_url }}",
+              "type": "string"
+            },
+            {
+              "id": "79077847-1158-4841-ac5a-f793382291b4",
+              "name": "researched_at",
+              "value": "={{ $now.format('yyyy-MM-dd HH:mm:ss') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        960,
+        -64
+      ],
+      "id": "ff281c92-8d80-44a6-b32e-f14f576678ce",
+      "name": "Compile Report"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data = $input.item.json;\nconst report = `\n========================================\nLEAD RESEARCH REPORT\n========================================\nCompany: ${data.company_name}\nResearched: ${data.researched_at}\n\n--- Wikipedia Summary ---\n${data.wiki_summary}\nSource: ${data.wiki_url}\n\n--- Web Search ---\n${data.search_abstract}\nOfficial URL: ${data.official_url}\n========================================\n`;\n\nreturn { json: { ...data, formatted_report: report.trim() } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -64
+      ],
+      "id": "e0566ef6-9b03-4d71-8358-2bd991898a18",
+      "name": "Format Text Report"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  { json: { company_name: 'College of the Desert' } },\n  { json: { company_name: 'Google' } },\n  { json: { company_name: 'Tesla' } }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -64
+      ],
+      "id": "ff0c08f6-ba0e-4142-9bc5-e0dbc4098185",
+      "name": "Company List"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "reports",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1408,
+        -64
+      ],
+      "id": "0de6e2bc-6075-4032-8235-1015617ed1e0",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const reports = $input.first().json.reports;\nconst summary = reports.map(r =>\n  `• ${r.company_name}: ${r.wiki_summary?.substring(0, 100)}...`\n).join('\\n');\n\nreturn [{\n  json: {\n    report_title: 'Lead Research Batch Report',\n    generated_at: new Date().toISOString(),\n    total_companies: reports.length,\n    summary: summary\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        -64
+      ],
+      "id": "f266913a-ffc1-4b44-8b78-6a7554cbfb3f",
+      "name": "Summary Report"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Company List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wikipedia Search": {
+      "main": [
+        [
+          {
+            "node": "Extract Wiki Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Wiki Data": {
+      "main": [
+        [
+          {
+            "node": "DuckDuckGo Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DuckDuckGo Search": {
+      "main": [
+        [
+          {
+            "node": "Extract Search Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Search Data": {
+      "main": [
+        [
+          {
+            "node": "Compile Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Report": {
+      "main": [
+        [
+          {
+            "node": "Format Text Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company List": {
+      "main": [
+        [
+          {
+            "node": "Wikipedia Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Text Report": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Summary Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a9bdcf58-e780-4f22-8c84-0bc7295ec8d9",
+  "meta": {
+    "instanceId": "74ee99bc740c6dac711ced63f616b978808d56ad1bdf9d964ab20472df081c38"
+  },
+  "nodeGroups": [],
+  "id": "8F5nSeLLrZxgVQtS",
+  "tags": []
+}
