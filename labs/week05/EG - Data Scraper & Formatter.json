@@ -1,0 +1,540 @@
+{
+  "name": "EG - Data Scraper & Formatter",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -576,
+        -160
+      ],
+      "id": "41c9e30a-b17d-44dd-8eaa-1077436983ab",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://books.toscrape.com",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -400,
+        -160
+      ],
+      "id": "8f9be70c-a057-44a4-83bd-5c75c2b9df71",
+      "name": "Fetch Bookstore"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "books",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1.1,
+      "position": [
+        -48,
+        -160
+      ],
+      "id": "65cf5db6-7779-414d-a006-636f1bac668c",
+      "name": "Split Out Books"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "books",
+              "cssSelector": "article.product_pod",
+              "returnValue": "html",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        -224,
+        -160
+      ],
+      "id": "8bfc3cf9-e0bf-403b-8cb2-aad9f41b868e",
+      "name": "Extract Books"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "dataPropertyName": "books",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "title",
+              "cssSelector": "h3 a",
+              "returnValue": "attribute",
+              "attribute": "title"
+            },
+            {
+              "key": "price",
+              "cssSelector": "p.price_color"
+            },
+            {
+              "key": "availability",
+              "cssSelector": ".availability"
+            },
+            {
+              "key": "rating",
+              "cssSelector": "p.star-rating",
+              "returnValue": "attribute",
+              "attribute": "class"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        128,
+        -160
+      ],
+      "id": "c024ffd4-8927-47e3-95e7-6242a75eeb34",
+      "name": "Extract Book Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const data = item.json;\n\n  // Parse price: remove \"£\" and convert to number\n  const price = parseFloat((data.price || '').replace(/[^0-9.]/g, ''));\n\n  // Parse availability: extract clean text\n  const available = (data.availability || '').trim().toLowerCase().includes('in stock');\n\n  // Parse rating: extract star count from class name\n  const ratingMap = { 'One': 1, 'Two': 2, 'Three': 3, 'Four': 4, 'Five': 5 };\n  const ratingClass = (data.rating || '').replace('star-rating ', '');\n  const stars = ratingMap[ratingClass] || 0;\n\n  return {\n    json: {\n      title: data.title || 'Unknown',\n      price: price,\n      in_stock: available,\n      stars: stars,\n      value_score: stars > 0 ? Math.round((stars / price) * 100) / 100 : 0\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        -160
+      ],
+      "id": "b417d9fa-62f1-465c-8b63-484bf13951e1",
+      "name": "Clean Book Data"
+    },
+    {
+      "parameters": {
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "price"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [
+        -576,
+        48
+      ],
+      "id": "a9cead88-623e-4c06-906b-6db33964e283",
+      "name": "Sort by Price"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "35a9ac40-12d1-4eb0-9846-ae54925243fe",
+              "leftValue": "={{ $json.in_stock }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        -400,
+        48
+      ],
+      "id": "b355a8f0-4f55-4138-bf5b-379f30d17f59",
+      "name": "In Stock Only"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst prices = items.map(i => i.json.price);\nconst total = prices.reduce((sum, p) => sum + p, 0);\nconst avg = total / prices.length;\n\nreturn [{\n  json: {\n    total_books: items.length,\n    total_value: Math.round(total * 100) / 100,\n    average_price: Math.round(avg * 100) / 100,\n    cheapest: items[0]?.json.title || 'N/A',\n    cheapest_price: prices[0] || 0,\n    most_expensive: items[items.length - 1]?.json.title || 'N/A',\n    most_expensive_price: prices[prices.length - 1] || 0,\n    five_star_count: items.filter(i => i.json.stars === 5).length,\n    generated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -176,
+        160
+      ],
+      "id": "eafd8257-cfa6-4463-94d9-c6c34c7fc82d",
+      "name": "Summary Statistics"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "wKJDr1Dvyft0s8yB",
+          "mode": "list",
+          "cachedResultName": "EG Books",
+          "cachedResultUrl": "/projects/BImGwWIz53STmF8l/datatables/wKJDr1Dvyft0s8yB"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "in_stock": false
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "price",
+              "displayName": "price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "in_stock",
+              "displayName": "in_stock",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "stars",
+              "displayName": "stars",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "value_score",
+              "displayName": "value_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -176,
+        32
+      ],
+      "id": "1561b473-6018-4cce-ba87-3550f8b3c309",
+      "name": "Save Books"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "ZkdcPjC4ewwA4Bsl",
+          "mode": "list",
+          "cachedResultName": "EG Book Summary",
+          "cachedResultUrl": "/projects/BImGwWIz53STmF8l/datatables/ZkdcPjC4ewwA4Bsl"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "total_books",
+              "displayName": "total_books",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_value",
+              "displayName": "total_value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "average_price",
+              "displayName": "average_price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "cheapest",
+              "displayName": "cheapest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "cheapest_price",
+              "displayName": "cheapest_price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "most_expensive",
+              "displayName": "most_expensive",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "most_expensive_price",
+              "displayName": "most_expensive_price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "five_star_count",
+              "displayName": "five_star_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "generated_at",
+              "displayName": "generated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        160
+      ],
+      "id": "036142ce-eb67-4f10-8fb1-94c10432d9a3",
+      "name": "Save Summary"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -576,
+        -288
+      ],
+      "id": "975a1074-97a7-43b9-80e5-62314110f1ed",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Fetch Bookstore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Bookstore": {
+      "main": [
+        [
+          {
+            "node": "Extract Books",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Books": {
+      "main": [
+        [
+          {
+            "node": "Split Out Books",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Books": {
+      "main": [
+        [
+          {
+            "node": "Extract Book Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Book Fields": {
+      "main": [
+        [
+          {
+            "node": "Clean Book Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Book Data": {
+      "main": [
+        [
+          {
+            "node": "Sort by Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort by Price": {
+      "main": [
+        [
+          {
+            "node": "In Stock Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In Stock Only": {
+      "main": [
+        [
+          {
+            "node": "Summary Statistics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Books",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary Statistics": {
+      "main": [
+        [
+          {
+            "node": "Save Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Bookstore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "09759ce4-c628-45d4-a3ae-1ae11bf45970",
+  "meta": {
+    "instanceId": "74ee99bc740c6dac711ced63f616b978808d56ad1bdf9d964ab20472df081c38"
+  },
+  "nodeGroups": [],
+  "id": "S42GT5lCnr3zvGTn",
+  "tags": []
+}
