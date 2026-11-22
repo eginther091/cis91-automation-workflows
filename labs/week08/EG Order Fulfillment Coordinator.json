@@ -1,0 +1,722 @@
+{
+  "name": "EG Order Fulfillment Coordinator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "EG-order",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "87095a12-075c-4670-97c1-40691e6c6d12",
+      "name": "Receive Order",
+      "webhookId": "778a0931-1d9c-48f9-a796-807be92943fa",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// A webhook puts the JSON you POST under `body` (next to headers, params and query)\nconst order = $json.body ?? {};\nconst errors = [];\n\n// Check required fields\nif (!order.order_id) errors.push('Missing order_id');\nif (!order.customer?.name) errors.push('Missing customer name');\nif (!order.customer?.email) errors.push('Missing customer email');\nif (!order.items || !Array.isArray(order.items) || order.items.length === 0) {\n  errors.push('No items in order');\n}\n\n// Validate items\nif (order.items && Array.isArray(order.items)) {\n  order.items.forEach((item, i) => {\n    if (!item.product) errors.push(`Item ${i + 1}: missing product name`);\n    if (!item.quantity || item.quantity <= 0) errors.push(`Item ${i + 1}: invalid quantity`);\n    if (!item.unit_price || item.unit_price <= 0) errors.push(`Item ${i + 1}: invalid price`);\n  });\n}\n\n// Validate payment\nif (!['confirmed', 'pending'].includes(order.payment_status)) {\n  errors.push('Invalid payment status');\n}\n\nreturn {\n  json: {\n    ...order,\n    validation_passed: errors.length === 0,\n    validation_errors: errors,\n    validated_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "57ae7dfd-62b4-45df-a37e-6ebd69fe2736",
+      "name": "Validate Order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "b0646bab-0704-4f2e-b301-ffa4f35d80b5",
+              "leftValue": "={{ $json.validation_passed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0c10cfd9-4fab-4a08-ba90-105a984db9c9",
+      "name": "Validation Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5055ad66-3d48-4a7b-b0f0-8d8f70afaed5",
+              "name": "status",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "5ea0ef8d-68eb-4b29-a443-87cf195201b6",
+              "name": "message",
+              "value": "Order validation failed",
+              "type": "string"
+            },
+            {
+              "id": "075bd6c4-6f26-4103-a220-f8521d51be34",
+              "name": "errors",
+              "value": "={{ $json.validation_errors }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dd7fadf2-eb85-49b7-bace-bce2b8c7e234",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        672,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "b310f863-6aa5-44d9-a91e-804f544c2bb1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const order = $json;\nconst items = order.items.map(item => ({\n  ...item,\n  line_total: Math.round(item.quantity * item.unit_price * 100) / 100\n}));\n\nconst subtotal = items.reduce((sum, item) => sum + item.line_total, 0);\nconst tax_rate = 0.0775; // CA sales tax\nconst tax = Math.round(subtotal * tax_rate * 100) / 100;\nconst shipping_cost = order.shipping === 'express' ? 15.99 : 5.99;\nconst total = Math.round((subtotal + tax + shipping_cost) * 100) / 100;\n\nreturn {\n  json: {\n    ...order,\n    items_detailed: items,\n    subtotal: subtotal,\n    tax: tax,\n    shipping_cost: shipping_cost,\n    total: total,\n    processed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "e7862cd8-cdf2-4ec4-8f85-59652d14509b",
+      "name": "Calculate Totals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const order = $json;\nconst itemLines = order.items_detailed.map(item =>\n  `  ${item.quantity}x ${item.product} @ $${item.unit_price} = $${item.line_total}`\n).join('\\n');\n\nconst slip = `\n================================\nPACKING SLIP - ${order.order_id}\n================================\nCustomer: ${order.customer.name}\nEmail: ${order.customer.email}\nShipping: ${order.shipping}\n\nItems:\n${itemLines}\n\nSubtotal: $${order.subtotal}\nTax: $${order.tax}\nShipping: $${order.shipping_cost}\nTOTAL: $${order.total}\n================================\nProcessed: ${order.processed_at}\n`;\n\nreturn { json: { ...order, packing_slip: slip.trim() } };"
+      },
+      "id": "4082737e-6720-40f4-987d-23c2dc820302",
+      "name": "Generate Packing Slip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://jsonplaceholder.typicode.com/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({title: \"New Order: \" + $json.order_id, body: $json.packing_slip, userId: 1}) }}",
+        "options": {}
+      },
+      "id": "7092436b-3a90-465a-8a68-1fbd8e1eb0ec",
+      "name": "Notify Warehouse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "retryOnFail": true,
+      "position": [
+        1120,
+        -96
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6a9a4b11-8694-487a-be0d-209f23755507",
+              "name": "order_id",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.order_id }}"
+            },
+            {
+              "id": "d07074a9-2bf5-49d2-b007-62e7d31a779a",
+              "name": "customer",
+              "type": "object",
+              "value": "={{ $('Generate Packing Slip').item.json.customer }}"
+            },
+            {
+              "id": "0fd1790a-9eb6-45af-91c2-dfebc24a9fc0",
+              "name": "items",
+              "type": "array",
+              "value": "={{ $('Generate Packing Slip').item.json.items }}"
+            },
+            {
+              "id": "3b4be8d1-d1ee-45ee-9e29-2f30e7155b4b",
+              "name": "items_detailed",
+              "type": "array",
+              "value": "={{ $('Generate Packing Slip').item.json.items_detailed }}"
+            },
+            {
+              "id": "52b79682-0d84-4654-a4b6-50360dfd8e56",
+              "name": "payment_status",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.payment_status }}"
+            },
+            {
+              "id": "18724274-4ad4-4958-810e-9226f225d7cf",
+              "name": "shipping",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.shipping }}"
+            },
+            {
+              "id": "e96f67f6-0f01-4cda-acad-22b0d3960b6f",
+              "name": "subtotal",
+              "type": "number",
+              "value": "={{ $('Generate Packing Slip').item.json.subtotal }}"
+            },
+            {
+              "id": "ad9fa0a0-555f-49e1-bf96-6d725e83ddd5",
+              "name": "tax",
+              "type": "number",
+              "value": "={{ $('Generate Packing Slip').item.json.tax }}"
+            },
+            {
+              "id": "9215130b-e4c6-4b4c-8278-befc2f1e5a0f",
+              "name": "shipping_cost",
+              "type": "number",
+              "value": "={{ $('Generate Packing Slip').item.json.shipping_cost }}"
+            },
+            {
+              "id": "e336e5f3-5097-448d-83cf-20b8d00dbf1d",
+              "name": "total",
+              "type": "number",
+              "value": "={{ $('Generate Packing Slip').item.json.total }}"
+            },
+            {
+              "id": "a8625c7c-7f22-482c-8bba-4aaa6c515849",
+              "name": "validation_passed",
+              "type": "boolean",
+              "value": "={{ $('Generate Packing Slip').item.json.validation_passed }}"
+            },
+            {
+              "id": "daddf1cf-c9d9-47ba-9511-0dc907da6d5d",
+              "name": "validation_errors",
+              "type": "array",
+              "value": "={{ $('Generate Packing Slip').item.json.validation_errors }}"
+            },
+            {
+              "id": "77033aff-69ca-41f1-9436-c16e0a882e75",
+              "name": "validated_at",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.validated_at }}"
+            },
+            {
+              "id": "64d638d7-4b03-4c7f-a683-b8ecf71e91b3",
+              "name": "processed_at",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.processed_at }}"
+            },
+            {
+              "id": "f1f423e2-580b-48ea-afb8-78ed9059e15d",
+              "name": "packing_slip",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.packing_slip }}"
+            },
+            {
+              "id": "ecab5fb0-3d1d-4e91-ae4e-fbef2c2ef56e",
+              "name": "warehouse_notified",
+              "type": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "50925776-5225-4393-8a36-01d8440b9826",
+      "name": "Warehouse Notified",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1344,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "77fd7e3a-bad4-412c-ae46-523280184a31",
+              "name": "order_id",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.order_id }}"
+            },
+            {
+              "id": "91f4f66d-d5f0-4441-8896-abccb415e15c",
+              "name": "customer",
+              "type": "object",
+              "value": "={{ $('Generate Packing Slip').item.json.customer }}"
+            },
+            {
+              "id": "bf77de63-b60f-4831-af98-d07871f0cb2a",
+              "name": "items",
+              "type": "array",
+              "value": "={{ $('Generate Packing Slip').item.json.items }}"
+            },
+            {
+              "id": "e5b2e6c9-e0f0-4f4e-a510-46ab7d117ff3",
+              "name": "items_detailed",
+              "type": "array",
+              "value": "={{ $('Generate Packing Slip').item.json.items_detailed }}"
+            },
+            {
+              "id": "0d06e29e-9bba-48ce-8cfe-f9fc637d6d5f",
+              "name": "payment_status",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.payment_status }}"
+            },
+            {
+              "id": "fb2be2ed-b7f7-452c-bfc3-85b1174b5375",
+              "name": "shipping",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.shipping }}"
+            },
+            {
+              "id": "8d698e48-01b0-44e4-bbf4-8795c02fcef3",
+              "name": "subtotal",
+              "type": "number",
+              "value": "={{ $('Generate Packing Slip').item.json.subtotal }}"
+            },
+            {
+              "id": "76309134-2a33-4695-940a-af6bac6297c5",
+              "name": "tax",
+              "type": "number",
+              "value": "={{ $('Generate Packing Slip').item.json.tax }}"
+            },
+            {
+              "id": "ccdbf5de-ecf1-442a-a435-c2eb665c1fd2",
+              "name": "shipping_cost",
+              "type": "number",
+              "value": "={{ $('Generate Packing Slip').item.json.shipping_cost }}"
+            },
+            {
+              "id": "8b52a4d4-f855-4f40-9833-044d1ba8a55d",
+              "name": "total",
+              "type": "number",
+              "value": "={{ $('Generate Packing Slip').item.json.total }}"
+            },
+            {
+              "id": "03aadf4f-f08c-440e-89d4-6afd41c7dd8f",
+              "name": "validation_passed",
+              "type": "boolean",
+              "value": "={{ $('Generate Packing Slip').item.json.validation_passed }}"
+            },
+            {
+              "id": "d69eef9b-6317-4152-98cc-4abac6cce89b",
+              "name": "validation_errors",
+              "type": "array",
+              "value": "={{ $('Generate Packing Slip').item.json.validation_errors }}"
+            },
+            {
+              "id": "3ca98d6b-70d0-4a4d-9779-e4bb6bb84c75",
+              "name": "validated_at",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.validated_at }}"
+            },
+            {
+              "id": "fc0b3cd0-1905-40f5-9881-54156e13d828",
+              "name": "processed_at",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.processed_at }}"
+            },
+            {
+              "id": "4dcbadcd-9476-4920-82c1-e4402f3fecfe",
+              "name": "packing_slip",
+              "type": "string",
+              "value": "={{ $('Generate Packing Slip').item.json.packing_slip }}"
+            },
+            {
+              "id": "54d33370-2eb0-4283-a84c-3e4580e23830",
+              "name": "warehouse_notified",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "2cca4a5e-c8e6-4283-ad2b-1652be440fd9",
+              "name": "warehouse_error",
+              "type": "string",
+              "value": "Notification failed after 3 tries"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "25a7bc2a-f3d7-4c86-8fca-09f98fb7c7d8",
+      "name": "Warehouse Notification Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1344,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "0306a7d6-06eb-4d35-bf46-1478d80c2c05",
+      "name": "Combine Paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1568,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "eT2T09IN6xz4flux",
+          "mode": "list",
+          "cachedResultName": "EG Order Log",
+          "cachedResultUrl": "/projects/BImGwWIz53STmF8l/datatables/eT2T09IN6xz4flux"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "warehouse_notified": true,
+            "order_id": "={{ $json.order_id }}",
+            "customer_name": "={{ $json.customer.name }}",
+            "email": "={{ $json.customer.email }}",
+            "items_count": "={{ $json.items.length }}",
+            "subtotal": "={{ $json.subtotal }}",
+            "tax": "={{ $json.tax }}",
+            "total": "={{ $json.total }}",
+            "shipping": "={{ $json.shipping }}",
+            "processed_at": "={{ $json.processed_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "order_id",
+              "displayName": "order_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "customer_name",
+              "displayName": "customer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "items_count",
+              "displayName": "items_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "subtotal",
+              "displayName": "subtotal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "tax",
+              "displayName": "tax",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "shipping",
+              "displayName": "shipping",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "warehouse_notified",
+              "displayName": "warehouse_notified",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "9f76dd70-44f4-4a1a-ae3f-f273bb7185d0",
+      "name": "Log Order",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'ok', order_id: $('Combine Paths').item.json.order_id, total: $('Combine Paths').item.json.total, warehouse_notified: $('Combine Paths').item.json.warehouse_notified } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "18ad3281-21d5-44d6-b8e0-148e711fab14",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2016,
+        -96
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Order": {
+      "main": [
+        [
+          {
+            "node": "Validate Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Order": {
+      "main": [
+        [
+          {
+            "node": "Validation Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Check": {
+      "main": [
+        [
+          {
+            "node": "Calculate Totals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Totals": {
+      "main": [
+        [
+          {
+            "node": "Generate Packing Slip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Packing Slip": {
+      "main": [
+        [
+          {
+            "node": "Notify Warehouse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Warehouse": {
+      "main": [
+        [
+          {
+            "node": "Warehouse Notified",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Warehouse Notification Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warehouse Notified": {
+      "main": [
+        [
+          {
+            "node": "Combine Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warehouse Notification Failed": {
+      "main": [
+        [
+          {
+            "node": "Combine Paths",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Paths": {
+      "main": [
+        [
+          {
+            "node": "Log Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Order": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "5PeOXJf8cyOZErUQ",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "7751aae3-3b78-4b00-b7d3-5c99c219f017",
+  "meta": {
+    "instanceId": "74ee99bc740c6dac711ced63f616b978808d56ad1bdf9d964ab20472df081c38"
+  },
+  "nodeGroups": [],
+  "id": "ZVXCfVfZramcYe30",
+  "tags": []
+}
